@@ -450,7 +450,10 @@ def get_shap_and_feature_decomposition(
       shap_background = shap.kmeans(df_features, min(MAX_BACKGROUND_SAMPLES, len(df_features)))
       df_shap = df_features.sample(n=min(MAX_SHAP_INSTANCES, len(df_features)), random_state=42)
       
-      base_model = modnet_model.model[0]
+      try:
+         base_model = modnet_model.model[0] # deprecated modnet
+      except AttributeError:
+         base_model = modnet_model.models[0]
       def predictor(X):
          X_df = pd.DataFrame(data=X, columns=df_features.columns)
          x = X_df.replace([np.inf, -np.inf, np.nan], 0)[base_model.optimal_descriptors[:base_model.n_feat]].values
