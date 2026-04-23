@@ -10,7 +10,7 @@ import pandas as pd
 import seaborn as sns
 import shap
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
 # Adjust these paths and parameters as needed for your setup
@@ -444,7 +444,7 @@ def get_shap_and_feature_decomposition(
    max_idvl_feat: int = 10,
    idx_modnet_model: int = 0,
    use_log_scale: bool = False,
-   xlim: tuple | None = None,
+   xlim: Optional[tuple] = None,
 ):
    if not MODNET_MATTERVIAL_AVAILABLE:
       print("MODNet or MatterVial not available. Cannot perform SHAP calculation and feature decomposition.")
