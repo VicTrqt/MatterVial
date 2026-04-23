@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import shap
+from pathlib import Path
 from typing import List
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
@@ -321,7 +322,18 @@ def plot_class_aggregation_barchart(class_importance, fold_idx, dir_prefix, is_l
    plt.close()
    print(f"Class-aggregated feature importance plot saved as: {plot_filename}")
 
-def plot_beeswarm_with_formulas(shap_values, df_features, top_features, fold_idx, formula_display_mode, dir_prefix, is_loaded):  
+def plot_beeswarm_with_formulas(
+   shap_values, 
+   df_features, 
+   top_features, 
+   fold_idx, 
+   formula_display_mode, 
+   dir_prefix, 
+   is_loaded, 
+   type_f=None, 
+   use_log_scale=False,
+   xlim=None
+   ):
    """Generates and saves a SHAP beeswarm plot with optional formula annotations."""  
    if not top_features:  
       print("No top features identified to generate a beeswarm plot.")  
@@ -346,13 +358,15 @@ def plot_beeswarm_with_formulas(shap_values, df_features, top_features, fold_idx
    plt.figure(figsize=(fig_width, fig_height))  
    
    # SHAP plot determines the order of features based on importance  
-   shap.summary_plot(shap_values_filtered, df_features_filtered, show=False, max_display=len(top_features))  
+   shap.summary_plot(shap_values_filtered, df_features_filtered, show=False, max_display=len(top_features), use_log_scale=use_log_scale)
    
    fig = plt.gcf()  
    ax_beeswarm = plt.gca()  
    
-   ax_beeswarm.tick_params(axis='y', labelsize=label_fontsize)  
+   ax_beeswarm.tick_params(axis='y', labelsize=label_fontsize)
    plt.tight_layout()  
+   if xlim is not None:
+      plt.xlim(xlim)
    
    original_labels_from_plot = [lbl.get_text() for lbl in ax_beeswarm.get_yticklabels()]  
    
@@ -379,12 +393,13 @@ def plot_beeswarm_with_formulas(shap_values, df_features, top_features, fold_idx
    plt.title(f"SHAP Beeswarm Plot for Top Features from Each Class (Fold {fold_idx})")  
    
    suffix = '_loaded' if is_loaded else ''  
-   plot_filename = os.path.join(dir_prefix, f"shap_beeswarm_formulas_{formula_display_mode}_fold_{fold_idx}{suffix}.svg")  
+   suffix = suffix + f"_{type_f}" if type_f else suffix
+   plot_filename = os.path.join(dir_prefix, f"shap_beeswarm_formulas_{formula_display_mode}_fold_{fold_idx}{suffix}.svg")
    plt.savefig(plot_filename, bbox_inches='tight')  
    plt.close()  
    print(f"Beeswarm plot saved as: {plot_filename}")
 
-def save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded):
+def save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded, type_f=None):
    """
    Saves the top features from each cluster and their formatted formulas to a text file,
    including formulas for all available dimensions.
@@ -392,6 +407,7 @@ def save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_lo
    print(f"\n--- Saving Feature Formulas to Text File for Fold {fold_idx} ---")
    
    suffix = '_loaded' if is_loaded else ''
+   suffix = suffix + f"_{type_f}" if type_f else suffix
    output_filename = os.path.join(dir_prefix, f"top_feature_per_group_formulas_all_dimensions_fold_{fold_idx}{suffix}.txt")
    
    if not MODNET_MATTERVIAL_AVAILABLE:
@@ -424,12 +440,17 @@ def get_shap_and_feature_decomposition(
    model_path: str,
    moddata_path: str,
    dir_prefix: str,
-   fold_idx: int
+   fold_idx: int,
+   max_idvl_feat: int = 10,
+   idx_modnet_model: int = 0,
+   use_log_scale: bool = False,
+   xlim: tuple | None = None,
 ):
    if not MODNET_MATTERVIAL_AVAILABLE:
       print("MODNet or MatterVial not available. Cannot perform SHAP calculation and feature decomposition.")
       return
 
+   dir_prefix = str(os.path.join(dir_prefix, f"idx_mdt_model_{idx_modnet_model}"))
    os.makedirs(dir_prefix, exist_ok=True)
    
    shap_values_filename = os.path.join(dir_prefix, f"shap_values_fold_{fold_idx}.pkl")
@@ -450,18 +471,36 @@ def get_shap_and_feature_decomposition(
       shap_background = shap.kmeans(df_features, min(MAX_BACKGROUND_SAMPLES, len(df_features)))
       df_shap = df_features.sample(n=min(MAX_SHAP_INSTANCES, len(df_features)), random_state=42)
       
-      try:
-         base_model = modnet_model.model[0] # deprecated modnet
-      except AttributeError:
-         base_model = modnet_model.models[0]
+      # Determine the base model to use for SHAP predictions based on idx_modnet_model
+      if idx_modnet_model < 0:
+         base_model = modnet_model
+      else:
+         try:
+            base_model = modnet_model.model[idx_modnet_model] # deprecated modnet
+         except AttributeError:
+            base_model = modnet_model.models[idx_modnet_model]
+
       def predictor(X):
          X_df = pd.DataFrame(data=X, columns=df_features.columns)
-         x = X_df.replace([np.inf, -np.inf, np.nan], 0)[base_model.optimal_descriptors[:base_model.n_feat]].values
-         x = np.nan_to_num(x)
-         if base_model._scaler is not None:
-               x = base_model._scaler.transform(x)
-               x = np.nan_to_num(x, nan=-1)
-         return np.array(base_model.model.predict(x))
+         x = X_df.replace([np.inf, -np.inf, np.nan], 0)
+         if isinstance(base_model, EnsembleMODNetModel):
+            pred_concat = []
+            for m in base_model.models:
+               x_tmp = x[m.optimal_descriptors[:m.n_feat]].values
+               x_tmp = np.nan_to_num(x_tmp)
+               if m._scaler is not None:
+                     x_tmp = m._scaler.transform(x_tmp)
+                     x_tmp = np.nan_to_num(x_tmp, nan=-1)
+               pred_concat.append(np.array(m.model.predict(x_tmp)))
+            return np.mean(pred_concat, axis=0)
+    
+         else:
+            x = x[base_model.optimal_descriptors[:base_model.n_feat]].values
+            x = np.nan_to_num(x)
+            if base_model._scaler is not None:
+                  x = base_model._scaler.transform(x)
+                  x = np.nan_to_num(x, nan=-1)
+            return np.array(base_model.model.predict(x))
 
       explainer = shap.KernelExplainer(predictor, shap_background)
       shap_values = explainer.shap_values(df_shap, nsamples=NSAMPLES)
@@ -482,7 +521,7 @@ def get_shap_and_feature_decomposition(
    individual_importance = individual_importance.sort_values(ascending=False)
    
    print("\nIndividual feature importance:")
-   print(individual_importance.iloc[:10])
+   print(individual_importance.iloc[:max_idvl_feat])
 
    print("\nClass-aggregated feature importance:")
    print(class_importance)
@@ -494,15 +533,17 @@ def get_shap_and_feature_decomposition(
 
    plot_class_aggregation_barchart(class_importance, fold_idx, dir_prefix, is_loaded)
    
-   save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded)
+   save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded, type_f='class')
 
-   # plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'none', dir_prefix, is_loaded)
-   # plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'short', dir_prefix, is_loaded)
-   # plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'full', dir_prefix, is_loaded)
+   save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded, type_f='individual')
 
-   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:10], fold_idx, 'none', dir_prefix, is_loaded)
-   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:10], fold_idx, 'short', dir_prefix, is_loaded)
-   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:10], fold_idx, 'full', dir_prefix, is_loaded)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'none', dir_prefix, is_loaded , type_f='class', use_log_scale=use_log_scale, xlim=xlim)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'short', dir_prefix, is_loaded, type_f='class', use_log_scale=use_log_scale, xlim=xlim)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'full', dir_prefix, is_loaded , type_f='class', use_log_scale=use_log_scale, xlim=xlim)
+
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:max_idvl_feat], fold_idx, 'none', dir_prefix, is_loaded , type_f='individual', use_log_scale=use_log_scale, xlim=xlim)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:max_idvl_feat], fold_idx, 'short', dir_prefix, is_loaded, type_f='individual', use_log_scale=use_log_scale, xlim=xlim)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:max_idvl_feat], fold_idx, 'full', dir_prefix, is_loaded , type_f='individual', use_log_scale=use_log_scale, xlim=xlim)
 
 # --- Script 2: SHAP-based Feature Clustering ---
 
