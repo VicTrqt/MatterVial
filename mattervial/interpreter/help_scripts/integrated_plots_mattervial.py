@@ -450,7 +450,10 @@ def get_shap_and_feature_decomposition(
       shap_background = shap.kmeans(df_features, min(MAX_BACKGROUND_SAMPLES, len(df_features)))
       df_shap = df_features.sample(n=min(MAX_SHAP_INSTANCES, len(df_features)), random_state=42)
       
-      base_model = modnet_model.model[0]
+      try:
+         base_model = modnet_model.model[0] # deprecated
+      except AttributeError:
+         base_model = modnet_model.models[0]
       def predictor(X):
          X_df = pd.DataFrame(data=X, columns=df_features.columns)
          x = X_df.replace([np.inf, -np.inf, np.nan], 0)[base_model.optimal_descriptors[:base_model.n_feat]].values
@@ -468,10 +471,19 @@ def get_shap_and_feature_decomposition(
          pickle.dump(shap_values, f)
       print(f"SHAP values calculated and saved to {shap_values_filename}")
 
+
+   # Handle case where shap_values has an extra dimension (e.g., for multi-class or multi-output models)
+   if len(shap_values.shape) > 2:
+      shap_values = shap_values[:,:,0]
+
    df_shap_current = moddata.df_featurized.sample(n=min(MAX_SHAP_INSTANCES, len(moddata.df_featurized)), random_state=42)
    
    individual_importance, class_importance, top_features_map = analyze_feature_importance(shap_values, df_shap_current)
+   individual_importance = individual_importance.sort_values(ascending=False)
    
+   print("\nIndividual feature importance:")
+   print(individual_importance.iloc[:10])
+
    print("\nClass-aggregated feature importance:")
    print(class_importance)
    
@@ -484,9 +496,13 @@ def get_shap_and_feature_decomposition(
    
    save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded)
 
-   plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'none', dir_prefix, is_loaded)
-   plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'short', dir_prefix, is_loaded)
-   plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'full', dir_prefix, is_loaded)
+   # plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'none', dir_prefix, is_loaded)
+   # plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'short', dir_prefix, is_loaded)
+   # plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'full', dir_prefix, is_loaded)
+
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:10], fold_idx, 'none', dir_prefix, is_loaded)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:10], fold_idx, 'short', dir_prefix, is_loaded)
+   plot_beeswarm_with_formulas(shap_values, df_shap_current, individual_importance.index.tolist()[:10], fold_idx, 'full', dir_prefix, is_loaded)
 
 # --- Script 2: SHAP-based Feature Clustering ---
 
