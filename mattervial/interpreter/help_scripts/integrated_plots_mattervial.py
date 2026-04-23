@@ -451,7 +451,7 @@ def get_shap_and_feature_decomposition(
       df_shap = df_features.sample(n=min(MAX_SHAP_INSTANCES, len(df_features)), random_state=42)
       
       try:
-         base_model = modnet_model.model[0] # deprecated
+         base_model = modnet_model.model[0] # deprecated modnet
       except AttributeError:
          base_model = modnet_model.models[0]
       def predictor(X):
