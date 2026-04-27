@@ -535,7 +535,7 @@ def get_shap_and_feature_decomposition(
    
    save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded, type_f='class')
 
-   save_feature_formulas_to_text(top_features_list, fold_idx, dir_prefix, is_loaded, type_f='individual')
+   save_feature_formulas_to_text(individual_importance.index.tolist()[:max_idvl_feat], fold_idx, dir_prefix, is_loaded, type_f='individual')
 
    plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'none', dir_prefix, is_loaded , type_f='class', use_log_scale=use_log_scale, xlim=xlim)
    plot_beeswarm_with_formulas(shap_values, df_shap_current, top_features_list, fold_idx, 'short', dir_prefix, is_loaded, type_f='class', use_log_scale=use_log_scale, xlim=xlim)
